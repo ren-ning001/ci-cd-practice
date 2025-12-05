@@ -4,20 +4,18 @@ on:
   push:
     branches: [ "main" ]
 
-# 这是⼀个重要的设置：定义 GITHUB_TOKEN 的权限
-# 我们需要写⼊ Packages 的权限来推送镜像
+# 定义 GITHUB_TOKEN 的权限
 permissions:
   contents: read
   packages: write
 
 env:
-  # 定义环境变量，便于维护和重用
   REGISTRY: ghcr.io
   IMAGE_NAME: ci-cd-practice
   IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
-  # 第⼀步：测试代码
+  # 第一步：测试代码
   test:
     runs-on: ubuntu-latest
     steps:
@@ -35,15 +33,10 @@ jobs:
       - name: Run tests
         run: npm test
 
-  # 第⼆步：构建并推送 Docker 镜像（带版本标签）
+  # 第二步：构建并推送 Docker 镜像（只保留最新和7位哈希值）
   build-and-push:
-    needs: test # 只有测试通过才运⾏
+    needs: test # 只有测试通过才运行
     runs-on: ubuntu-latest
-    
-    # 设置作业级别的环境变量
-    env:
-      SHORT_SHA: ${{ github.sha }} # 后续会截取前7位
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,17 +47,13 @@ jobs:
         run: |
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           echo "sha_short=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "Git SHA (full): ${{ github.sha }}"
-          echo "Git SHA (short): ${SHORT_SHA}"
+          echo "📝 Git SHA (short): ${SHORT_SHA}"
       
-      # 设置 Docker Buildx 环境 (Docker 官⽅推荐)
+      # 设置 Docker Buildx 环境
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:master
       
-      # 登录到 GitHub Container Registry (ghcr.io)
+      # 登录到 GitHub Container Registry
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -72,48 +61,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      # 设置元数据（用于Docker镜像标签）
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=,format=short
-            type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
-      
-      # 构建并推送（使用动态版本标签）
+      # 构建并推送（只保留两个标签：latest 和 7位短哈希）
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # 使用多行标签语法，同时推送多个版本标签
+          # 只使用两个标签：latest 和 7位短哈希
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ steps.extract_sha.outputs.sha_short }}
-          # 添加标签以提高镜像可追溯性
+          # 简化的标签配置
           labels: |
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
             org.opencontainers.image.description="CI/CD Practice Application"
-            org.opencontainers.image.url=https://github.com/${{ github.repository }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ github.sha }}
-            org.opencontainers.image.created=${{ fromJson(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            org.opencontainers.image.version=${{ steps.extract_sha.outputs.sha_short }}
             org.opencontainers.image.revision=${{ github.sha }}
-          # 缓存优化
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
       
-      # 验证镜像已成功推送（可选）
+      # 验证镜像已成功推送
       - name: Verify pushed tags
         run: |
-          echo "✅ 镜像已成功推送到 GitHub Packages:"
-          echo "   - ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:latest"
-          echo "   - ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          echo "   - ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}:${{ steps.extract_sha.outputs.sha_short }}"
+          echo "✅ 镜像已成功推送到 GitHub Packages"
+          echo "========================================"
+          echo "镜像名称: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_NAME }}"
+          echo "📌 标签:"
+          echo "   • :latest (最新版本)"
+          echo "   • :${{ steps.extract_sha.outputs.sha_short }} (7位提交哈希)"
           echo ""
-          echo "🔗 访问地址: https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME }}"
+          echo "🔗 访问地址:"
+          echo "https://github.com/${{ github.repository }}/pkgs/container/${{ env.IMAGE_NAME }}"
