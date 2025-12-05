@@ -10,6 +10,11 @@ permissions:
   contents: read
   packages: write
 
+env:
+  # 定义环境变量方便使用
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ci-cd-practice
+
 jobs:
   # 第⼀步：测试代码
   test:
@@ -46,9 +51,14 @@ jobs:
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      
+      # 提取 Git 短哈希（前7位）
+      - name: Extract short SHA
+        id: extract_sha
+        run: echo "sha_short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
       
       # 构建并推送
       - name: Build and push Docker image
@@ -57,4 +67,16 @@ jobs:
           context: .
           push: true
           # 注意：镜像名称必须全部⼩写
-          tags: ghcr.io/${{ github.repository_owner }}/ci-cd-practice:latest
+          # 同时打上多个标签：
+          # 1. latest - 最新版本
+          # 2. 完整SHA - 精确版本标识
+          # 3. 短SHA(7位) - 常用版本标识
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.extract_sha.outputs.sha_short }}
+          
+          # 可选：添加构建参数，可以在 Dockerfile 中使用
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
